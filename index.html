@@ -1,115 +1,364 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>AI Calling Dashboard</title>
+    <title>Auto Calling Dashboard</title>
     <style>
-        body { margin: 0; font-family: Arial; display: flex; }
-        .sidebar {
-            width: 220px;
-            background: #111;
-            color: white;
-            height: 100vh;
-            padding: 20px;
+        body {
+            font-family: Arial, sans-serif;
+            padding: 30px;
+            background: #f5f7fb;
         }
-        .sidebar div {
-            margin: 15px 0;
+
+        input, select, button {
+            display: block;
+            margin: 10px 0;
+            padding: 10px;
+            width: 320px;
+        }
+
+        button {
+            background: #1f6feb;
+            color: white;
+            border: none;
+            border-radius: 6px;
             cursor: pointer;
         }
-        .content {
-            flex: 1;
-            padding: 20px;
+
+        button:hover {
+            background: #175dcc;
         }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid #ddd; padding: 8px; }
+
+        table {
+            margin-top: 20px;
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 14px;
+            background: white;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            vertical-align: top;
+            text-align: left;
+        }
+
+        .wrap {
+            max-width: 1400px;
+        }
+
+        .row {
+            display: flex;
+            gap: 50px;
+            flex-wrap: wrap;
+        }
+
+        .card {
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 14px rgba(0,0,0,0.08);
+            min-width: 420px;
+        }
+
+        .agent-info {
+            background: #eaf4ff;
+            border: 1px solid #bfdcff;
+            padding: 14px;
+            border-radius: 8px;
+            margin: 12px 0 20px 0;
+            width: 460px;
+        }
+
+        pre {
+            background: #111;
+            color: #fff;
+            padding: 12px;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            overflow-x: auto;
+        }
+
+        .note {
+            color: #666;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
+<div class="wrap">
+    <h2>📞 Instant Calling System</h2>
 
-<div class="sidebar">
-    <h3>Dashboard</h3>
-    <div onclick="loadPage('logs')">📞 Call Logs</div>
-    <div onclick="loadPage('campaign')">📢 Create Campaign</div>
-</div>
+    <label>Select Agent</label>
+    <select id="agent" onchange="updateSelectedAgent()">
+        <option value="">Loading agents...</option>
+    </select>
 
-<div class="content" id="content">
-    <h2>Welcome 🚀</h2>
+    <div class="agent-info" id="selectedAgentBox">
+        Selected agent will be shown here.
+    </div>
+
+    <div class="row">
+        <div class="card">
+            <h3>Single Contact</h3>
+
+            <label>Phone Number</label>
+            <input id="phone" placeholder="+9198XXXXXXX">
+
+            <label>Name</label>
+            <input id="name" placeholder="Enter Name">
+
+            <label>Custom Instruction</label>
+            <input id="instruction" placeholder="Enter Instruction">
+
+            <button onclick="makeCall()">Add Contact To Running Campaign</button>
+        </div>
+
+        <div class="card">
+            <h3>Bulk Upload</h3>
+
+            <label>Upload CSV / XLSX</label>
+            <input id="bulkFile" type="file" accept=".csv,.xlsx">
+
+            <button onclick="uploadBulk()">Upload Bulk Contacts</button>
+
+            <p><b>Excel/CSV column names:</b></p>
+            <p class="note">phone numbers</p>
+            <p class="note">name</p>
+            <p class="note">custom_instruction</p>
+        </div>
+    </div>
+
+    <hr>
+
+    <h2>📊 Call Logs</h2>
+    <button onclick="getLogs()">Load Logs For Selected Agent</button>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Number</th>
+                <th>Status</th>
+                <th>Duration</th>
+                <th>Agent ID</th>
+                <th>Campaign ID</th>
+                <th>Recording</th>
+                <th>Transcript</th>
+                <th>Summary</th>
+                <th>Cost</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody id="table"></tbody>
+    </table>
+
+    <h3>Response</h3>
+    <pre id="responseBox">Ready</pre>
 </div>
 
 <script>
+const BASE_URL = window.location.origin;
+let AGENTS = [];
 
-function loadPage(page) {
-    if (page === "logs") loadLogsUI();
-    if (page === "campaign") loadCampaignUI();
+function showResponse(data) {
+    document.getElementById("responseBox").textContent =
+        typeof data === "string" ? data : JSON.stringify(data, null, 2);
 }
 
-// -------- CALL LOGS --------
-function loadLogsUI() {
-    document.getElementById("content").innerHTML = `
-        <h2>Call Logs</h2>
-        <button onclick="fetchLogs()">Load Logs</button>
-        <table>
-            <thead>
-                <tr>
-                    <th>Number</th>
-                    <th>Status</th>
-                    <th>Duration</th>
-                    <th>Date</th>
-                </tr>
-            </thead>
-            <tbody id="logs"></tbody>
-        </table>
+function getMappedCampaignId(agentId) {
+    const mapping = {
+        5537: 2291,
+        5485: 2290
+    };
+    return mapping[Number(agentId)] || null;
+}
+
+function updateSelectedAgent() {
+    const agentId = parseInt(document.getElementById("agent").value);
+    const box = document.getElementById("selectedAgentBox");
+    const selected = AGENTS.find(a => Number(a.id) === Number(agentId));
+    const campaignId = getMappedCampaignId(agentId);
+
+    if (!selected) {
+        box.innerHTML = "No agent selected.";
+        return;
+    }
+
+    box.innerHTML = `
+        <b>Selected Agent:</b> ${selected.agent_name}<br>
+        <b>Agent ID:</b> ${selected.id}<br>
+        <b>Mapped Campaign ID:</b> ${campaignId || "Not configured"}<br>
+        <b>This selected agent will be used for:</b> Single Contact + Bulk Upload + Call Logs
     `;
 }
 
-async function fetchLogs() {
-    const res = await fetch("/call-logs");
-    const data = await res.json();
+async function loadAgents() {
+    try {
+        const res = await fetch(`${BASE_URL}/agents`);
+        const data = await res.json();
 
-    let rows = "";
-    (data.data || []).forEach(call => {
-        rows += `
-        <tr>
-            <td>${call.called_to}</td>
-            <td>${call.call_status}</td>
-            <td>${call.call_duration}s</td>
-            <td>${call.called_time}</td>
-        </tr>`;
-    });
+        let agentList = [];
 
-    document.getElementById("logs").innerHTML = rows;
+        if (Array.isArray(data)) {
+            agentList = data;
+        } else if (data && Array.isArray(data.data)) {
+            agentList = data.data;
+        } else if (data && Array.isArray(data.agents)) {
+            agentList = data.agents;
+        }
+
+        const dropdown = document.getElementById("agent");
+        dropdown.innerHTML = "";
+
+        if (!agentList.length) {
+            dropdown.innerHTML = `
+                <option value="5537">Stilwater Diabetes Care (ID: 5537)</option>
+                <option value="5485">Amar Eye Yoga (ID: 5485)</option>
+            `;
+            AGENTS = [
+                { id: 5537, agent_name: "Stilwater Diabetes Care" },
+                { id: 5485, agent_name: "Amar Eye Yoga" }
+            ];
+            updateSelectedAgent();
+            return;
+        }
+
+        AGENTS = agentList;
+
+        agentList.forEach(agent => {
+            const option = document.createElement("option");
+            option.value = agent.id;
+            option.textContent = `${agent.agent_name || "Unnamed Agent"} (ID: ${agent.id})`;
+            dropdown.appendChild(option);
+        });
+
+        dropdown.selectedIndex = 0;
+        updateSelectedAgent();
+        showResponse(data);
+    } catch (error) {
+        console.error("Failed to load agents:", error);
+        showResponse({ error: String(error) });
+
+        const dropdown = document.getElementById("agent");
+        dropdown.innerHTML = `
+            <option value="5537">Stilwater Diabetes Care (ID: 5537)</option>
+            <option value="5485">Amar Eye Yoga (ID: 5485)</option>
+        `;
+
+        AGENTS = [
+            { id: 5537, agent_name: "Stilwater Diabetes Care" },
+            { id: 5485, agent_name: "Amar Eye Yoga" }
+        ];
+
+        updateSelectedAgent();
+    }
 }
 
+async function makeCall() {
+    const phone = document.getElementById("phone").value.trim();
+    const name = document.getElementById("name").value.trim();
+    const instruction = document.getElementById("instruction").value.trim();
+    const agent_id = parseInt(document.getElementById("agent").value);
 
-// -------- CREATE CAMPAIGN --------
-function loadCampaignUI() {
-    document.getElementById("content").innerHTML = `
-        <h2>Create Campaign</h2>
-        <input id="name" placeholder="Campaign Name"><br><br>
-        <input id="agent" placeholder="Agent ID"><br><br>
-        <input id="start" placeholder="Start Time (HH:MM)"><br><br>
-        <input id="end" placeholder="End Time (HH:MM)"><br><br>
-        <button onclick="createCampaign()">Create</button>
-        <p id="result"></p>
-    `;
-}
+    if (!phone || !name || !instruction || !agent_id) {
+        alert("Please fill all fields and select an agent");
+        return;
+    }
 
-async function createCampaign() {
-    const res = await fetch("/create-campaign", {
+    const res = await fetch(`${BASE_URL}/call`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({
-            campaign_name: name.value,
-            agent_id: agent.value,
-            start_time: start.value,
-            end_time: end.value
+            phone,
+            name,
+            instruction,
+            agent_id
         })
     });
 
     const data = await res.json();
-    document.getElementById("result").innerText = JSON.stringify(data);
+    showResponse(data);
+
+    if (res.ok) {
+        alert(`✅ Contact added successfully using Agent ID ${agent_id}`);
+    } else {
+        alert("❌ Failed: " + JSON.stringify(data));
+    }
 }
 
-</script>
+async function uploadBulk() {
+    const fileInput = document.getElementById("bulkFile");
+    const agent_id = parseInt(document.getElementById("agent").value);
 
+    if (!fileInput.files.length) {
+        alert("Please choose a CSV or XLSX file");
+        return;
+    }
+
+    if (!agent_id) {
+        alert("Please select an agent");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+
+    const res = await fetch(`${BASE_URL}/bulk-upload?agent_id=${agent_id}`, {
+        method: "POST",
+        body: formData
+    });
+
+    const data = await res.json();
+    showResponse(data);
+
+    if (res.ok) {
+        alert(`✅ Bulk upload completed using Agent ID ${agent_id}. Valid contacts: ${data.valid_contacts}`);
+    } else {
+        alert("❌ Bulk upload failed: " + JSON.stringify(data));
+    }
+}
+
+async function getLogs() {
+    const agent_id = parseInt(document.getElementById("agent").value);
+
+    if (!agent_id) {
+        alert("Please select an agent");
+        return;
+    }
+
+    const res = await fetch(`${BASE_URL}/call-logs?agent_id=${agent_id}`);
+    const data = await res.json();
+
+    const tbody = document.getElementById("table");
+    tbody.innerHTML = "";
+
+    if (!data.data || !Array.isArray(data.data)) {
+        tbody.innerHTML = `<tr><td colspan="10">No logs found</td></tr>`;
+        showResponse(data);
+        return;
+    }
+
+    data.data.forEach(call => {
+        tbody.innerHTML += `
+            <tr>
+                <td>${call.called_to || ""}</td>
+                <td>${call.call_status || ""}</td>
+                <td>${call.call_duration || 0}s</td>
+                <td>${call.use_agent_id || ""}</td>
+                <td>${call.campaign_id || ""}</td>
+                <td>${call.call_recording ? `<a href="${call.call_recording}" target="_blank" rel="noopener noreferrer">Open</a>` : ""}</td>
+                <td>${call.call_transcript || ""}</td>
+                <td>${call.call_summary || ""}</td>
+                <td>${call.total_call_cost || ""}</td>
+                <td>${call.called_time || ""}</td>
+            </tr>
+        `;
+    });
+
+    showResponse(data);
+}
+
+loadAgents();
+</script>
 </body>
 </html>
